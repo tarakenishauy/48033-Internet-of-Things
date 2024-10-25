@@ -32,6 +32,22 @@ int soundVelocity = 340;  // Speed of sound in m/s (343 m/s at 20°C)
 // Time zone info
 #define TZ_INFO "AEST-10AEDT, M10.1.0,M4.1.0/3"
 
+// MQTT Broker
+const char *mqtt_broker = "broker.emqx.io";
+// const char *mqtt_broker = "broker.hivemq.com";
+const char *topic = "kaisesp32/wifiMeta/rssi";
+const char *mqtt_username = "emqx";
+const char *mqtt_password = "public";
+const int mqtt_port = 1883;
+
+String clientID;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void callback(char *topic, byte *payload, unsigned int length);
+void reconnect();
+
 // Declare InfluxDB Client Instance with preconfigured InfluxCloud
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
 
@@ -83,6 +99,29 @@ void setup() {
     delay(100);
   }
   Serial.println();
+
+   Serial.println("Connected to the Wi-Fi network with local IP: ");
+  Serial.println(WiFi.localIP());
+
+  clientID = "kaisesp32-";
+  clientID += WiFi.macAddress();
+
+  client.setServer(mqtt_broker, mqtt_port);
+  client.setCallback(callback);
+  while (!client.connected()) {
+    Serial.printf("The client %s connects to the public MQTT broker\n", clientID.c_str());
+    if (client.connect(clientID.c_str(), mqtt_username, mqtt_password)) {
+      Serial.println("Public EMQX MQTT broker connected");
+    } 
+    else 
+    {
+      Serial.print("failed with state ");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+
+  client.subscribe("kaisesp32/msgIn/led_group");
 
   timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
 
@@ -140,6 +179,18 @@ void loop() {
     Serial.println("Data successfully written to InfluxDB");
   }
 
-  // Delay 1 second before next reading
-  delay(1000);
+    if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  String tmp = String(WiFi.RSSI());
+  const char *payload = tmp.c_str();
+  if (client.publish(topic, payload)) {
+    Serial.println("publish okay");
+  } else {
+    Serial.println("publish failed");
+  }
+
+  delay(2000);
 }
